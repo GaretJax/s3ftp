@@ -37,7 +37,7 @@ class S3Reader(Protocol):
         self._done.callback(None)
 
     def send(self, consumer):
-        assert not self._send, 'Can only call IReadFile.send *once* per instance'
+        assert not self._send, 'Can only call S3Reader.send once per instance'
         self._send = True
         self._consumer = consumer
         self._done = defer.Deferred()
@@ -145,47 +145,33 @@ class S3FTPShell(object):
             prefix = self._path(path, True)
         else:
             prefix = None
-        ent = []
-        if xml.tag == ns('CommonPrefixes'):
+
+        isDir = xml.tag == ns('CommonPrefixes')
+
+        stat = {
+            'size': 0,
+            'directory': isDir,
+            'hardlinks': 0,
+            'modified': 0,
+            'owner': 'nobody',
+            'group': 'nobody'
+        }
+
+        if isDir:
             key = xml.find(ns('Prefix')).text
-            fileName = key[:-1].rsplit(self.delimiter, 1)[-1]
-            for k in keys:
-                if k == 'size':
-                    ent.append(0)
-                elif k == 'directory':
-                    ent.append(True)
-                elif k == 'permissions':
-                    ent.append(0755)
-                elif k == 'hardlinks':
-                    ent.append(0)
-                elif k == 'modified':
-                    ent.append(0)
-                elif k == 'owner':
-                    ent.append('nobody')
-                elif k == 'group':
-                    ent.append('nobody')
+            filename = key[:-1].rsplit(self.delimiter, 1)[-1]
+            stat['permissions'] = 0755
         else:
             key = xml.find(ns('Key')).text
-            if key == prefix:
+            if not isDir and key == prefix:
                 return False, []
-            fileName = key.rsplit(self.delimiter, 1)[-1]
-            for k in keys:
-                if k == 'size':
-                    ent.append(int(xml.find(ns('Size')).text))
-                elif k == 'directory':
-                    ent.append(False)
-                elif k == 'permissions':
-                    ent.append(0644)
-                elif k == 'hardlinks':
-                    ent.append(0)
-                elif k == 'modified':
-                    ent.append(0)
-                elif k == 'owner':
-                    ent.append(xml.find(ns('Owner', 'DisplayName')).text)
-                elif k == 'group':
-                    ent.append('nobody')
+            filename = key.rsplit(self.delimiter, 1)[-1]
 
-        return fileName, ent
+            stat['size'] = int(xml.find(ns('Size')).text)
+            stat['permissions'] = 0644
+            stat['owner'] = xml.find(ns('Owner', 'DisplayName')).text
+
+        return filename, [stat[k] for k in keys]
 
     @defer.inlineCallbacks
     def list(self, path, keys=()):
