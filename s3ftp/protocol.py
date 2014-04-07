@@ -107,18 +107,28 @@ class S3FTPShell(object):
         try:
             yield next(results)
         except StopIteration:
-            raise ftp.IsNotADirectoryError(self.delimiter.join(fromPath))
-
-        try:
-            yield next(results)
-        except StopIteration:
-            pass
+            yield self.renameFile(fromPath, toPath)
         else:
-            raise ftp.CmdNotImplementedError(
-                'Cannot rename non-empty directories')
+            try:
+                yield next(results)
+            except StopIteration:
+                yield self.renameEmptyDirectory(fromPath, toPath)
+            else:
+                raise ftp.CmdNotImplementedError(
+                    'Cannot rename non-empty directories')
 
-        yield self._bucket.object(prefix).delete()
-        yield self._mkdir(self._path(toPath))
+    @defer.inlineCallbacks
+    def renameFile(self, fromPath, toPath):
+        fromObj = self._bucket.object(self._path(fromPath))
+        toObj = self._bucket.object(self._path(toPath))
+        yield fromObj.copyTo(toObj)
+        yield fromObj.delete()
+
+
+    def renameEmptyDirectory(self, fromPath, toPath):
+        d1 = self._bucket.object(self._path(fromPath, True)).delete()
+        d2 = self._mkdir(self._path(toPath))
+        return defer.DeferredList([d1, d2])
 
     @defer.inlineCallbacks
     def access(self, path):

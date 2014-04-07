@@ -37,7 +37,13 @@ class Dropbox(S3FTPShell):
         return super(Dropbox, self).removeFile(path)
 
     def rename(self, fromPath, toPath):
-        raise ftp.CmdNotImplementedError('RNFR/RNTO')
+        if self.isDir(fromPath):
+            raise ftp.PermissionDeniedError(self._publicPath(fromPath))
+        if self.isDir(fromPath):
+            raise ftp.PermissionDeniedError(self._publicPath(toPath))
+        self.assertWritable(fromPath)
+        self.assertWritable(toPath)
+        return super(Dropbox, self).rename(fromPath, toPath)
 
     def _stat(self, keys, xml, path=None):
         filename, ent = super(Dropbox, self)._stat(keys, xml, path)
