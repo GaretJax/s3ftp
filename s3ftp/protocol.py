@@ -8,6 +8,7 @@ from twisted.internet import defer
 from twisted.protocols import ftp
 from twisted.internet.protocol import Protocol
 from twisted.web.client import FileBodyProducer
+from twisted.python import log
 
 from txs3.client import ns
 from txs3 import utils
@@ -71,6 +72,7 @@ class S3FTPShell(object):
 
     def makeDirectory(self, path):
         key = self._path(path)
+        log.msg('Make directory {}'.format(key))
         return self._mkdir(key)
 
     @defer.inlineCallbacks
@@ -82,20 +84,25 @@ class S3FTPShell(object):
         try:
             obj = yield next(results)
         except StopIteration:
+            log.msg('Cannot remove directory {}, not found'.format(prefix))
             return
 
         if obj.tag == ns('CommonPrefixes'):
+            log.msg('Cannot remove directory {}, not empty'.format(prefix))
             raise Exception('Directory is not empty.')
 
         try:
             yield next(results)
         except StopIteration:
+            log.msg('Remove directory {}'.format(prefix))
             yield self._bucket.object(obj.find(ns('Key')).text).delete()
         else:
+            log.msg('Cannot remove directory {}, not empty'.format(prefix))
             raise Exception('Directory is not empty.')
 
     def removeFile(self, path):
         key = self._path(path)
+        log.msg('Remove file {}'.format(key))
         return self._bucket.object(key).delete()
 
     @defer.inlineCallbacks
@@ -114,6 +121,7 @@ class S3FTPShell(object):
             except StopIteration:
                 yield self.renameEmptyDirectory(fromPath, toPath)
             else:
+                log.msg('Cannot rename non-empty directory {}'.format(prefix))
                 raise ftp.CmdNotImplementedError(
                     'Cannot rename non-empty directories')
 
@@ -121,13 +129,17 @@ class S3FTPShell(object):
     def renameFile(self, fromPath, toPath):
         fromObj = self._bucket.object(self._path(fromPath))
         toObj = self._bucket.object(self._path(toPath))
+        log.msg('Rename file from {} to {}'.format(fromObj.key, toObj.key))
         yield fromObj.copyTo(toObj)
         yield fromObj.delete()
 
 
     def renameEmptyDirectory(self, fromPath, toPath):
-        d1 = self._bucket.object(self._path(fromPath, True)).delete()
-        d2 = self._mkdir(self._path(toPath))
+        fromKey = self._path(fromPath, True)
+        toKey = self._path(toPath)
+        log.msg('Rename directory from {} to {}'.format(fromKey, toKey))
+        d1 = self._bucket.object(fromKey).delete()
+        d2 = self._mkdir(toKey)
         return defer.DeferredList([d1, d2])
 
     @defer.inlineCallbacks
@@ -137,6 +149,8 @@ class S3FTPShell(object):
         results = yield results.asList()
 
         if not results:
+            log.msg('File not found (while calling \'access\') {}'.format(
+                prefix))
             raise ftp.FileNotFoundError(self.delimiter.join(path))
 
     @defer.inlineCallbacks
@@ -145,8 +159,11 @@ class S3FTPShell(object):
         results = yield self._bucket.objects(prefix=prefix).asList()
 
         if not results:
+            log.msg('File not found (while calling \'stat\') {}'.format(
+                prefix))
             raise ftp.FileNotFoundError(self.delimiter.join(path))
 
+        log.msg('Stat {}'.format(prefix))
         fileName, ent = yield self._stat(keys, results[0])
         defer.returnValue(ent)
 
@@ -186,6 +203,7 @@ class S3FTPShell(object):
     @defer.inlineCallbacks
     def list(self, path, keys=()):
         prefix = self._path(path, True)
+        log.msg('Listing {}'.format(prefix))
         objects = yield self._bucket.objects(prefix=prefix,
                                              delimiter=self.delimiter)
         results = []
@@ -200,12 +218,14 @@ class S3FTPShell(object):
     @defer.inlineCallbacks
     def openForReading(self, path):
         key = self._path(path)
+        log.msg('Reading from {}'.format(key))
         obj = self._bucket.object(key)
         response = yield obj.get()
         defer.returnValue(S3Reader(response))
 
     def openForWriting(self, path):
         key = self._path(path)
+        log.msg('Writing to {}'.format(key))
         object = self._bucket.object(key)
 
         try:
@@ -262,6 +282,7 @@ class S3Realm(object):
         try:
             return self._shells[avatarId]
         except KeyError:
+            log.msg('Unauthorized login: {}'.format(avatarId))
             raise cred_error.UnauthorizedLogin()
 
     def requestAvatar(self, avatarId, mind, *interfaces):

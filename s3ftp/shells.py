@@ -1,4 +1,5 @@
 from twisted.protocols import ftp
+from twisted.python import log
 
 from .protocol import S3FTPShell
 
@@ -16,8 +17,9 @@ class Dropbox(S3FTPShell):
     def isWritable(self, path):
         return path and path[0] in self.uploadFolders
 
-    def assertWritable(self, path):
+    def assertWritable(self, path, reason):
         if not self.isWritable(path):
+            log.msg('Is not writable {}: {}'.format(path, reason))
             raise ftp.PermissionDeniedError(self._publicPath(path))
 
     def getPermissions(self, path):
@@ -27,22 +29,26 @@ class Dropbox(S3FTPShell):
         return perm
 
     def makeDirectory(self, path):
+        log.msg('Directory creation disabled {}'.format(self._path(path)))
         raise ftp.PermissionDeniedError(self._publicPath(path))
 
     def removeDirectory(self, path):
+        log.msg('Directory removal disabled {}'.format(self._path(path)))
         raise ftp.PermissionDeniedError(self._publicPath(path))
 
     def removeFile(self, path):
-        self.assertWritable(path)
+        self.assertWritable(path, 'cannot remove')
         return super(Dropbox, self).removeFile(path)
 
     def rename(self, fromPath, toPath):
         if self.isDir(fromPath):
+            log.msg('Cannot rename directory {}'.format(self._path(fromPath)))
             raise ftp.PermissionDeniedError(self._publicPath(fromPath))
         if self.isDir(fromPath):
+            log.msg('Cannot rename directory {}'.format(self._path(fromPath)))
             raise ftp.PermissionDeniedError(self._publicPath(toPath))
-        self.assertWritable(fromPath)
-        self.assertWritable(toPath)
+        self.assertWritable(fromPath, 'cannot remove')
+        self.assertWritable(toPath, 'cannot remove')
         return super(Dropbox, self).rename(fromPath, toPath)
 
     def _stat(self, keys, xml, path=None):
@@ -55,11 +61,10 @@ class Dropbox(S3FTPShell):
                 pass
             else:
                 path = list(path or []) + [filename]
-
                 ent[i] = self.getPermissions(path)
 
         return filename, ent
 
     def openForWriting(self, path):
-        self.assertWritable(path)
+        self.assertWritable(path, 'cannot write')
         return super(Dropbox, self).openForWriting(path)
